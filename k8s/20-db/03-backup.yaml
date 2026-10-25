@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-pvc
+  namespace: taskapp
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-backup
+  namespace: taskapp
+spec:
+  schedule: "*/5 * * * *"        # toutes les 5 min pour la démo
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels: { app: taskflow, tier: backup }
+        spec:
+          serviceAccountName: backup-sa
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            fsGroup: 70
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: backup
+              image: postgres:16-alpine
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -e
+                  FILE=/backup/dump-$(date +%Y%m%d-%H%M).sql
+                  pg_dump -h db -U "$POSTGRES_USER" "$POSTGRES_DB" > "$FILE"
+                  echo "Sauvegarde OK : $FILE ($(wc -c < "$FILE") octets)"
+                  # on garde seulement les 10 sauvegardes les plus récentes
+                  ls -1t /backup/dump-*.sql | tail -n +11 | xargs -r rm -f
+              env:
+                - name: POSTGRES_USER
+                  valueFrom:
+                    secretKeyRef: { name: db-credentials, key: POSTGRES_USER }
+                - name: PGPASSWORD          # variable lue automatiquement par pg_dump
+                  valueFrom:
+                    secretKeyRef: { name: db-credentials, key: POSTGRES_PASSWORD }
+                - name: POSTGRES_DB
+                  valueFrom:
+                    configMapKeyRef: { name: app-config, key: DB_NAME }
+              volumeMounts:
+                - { name: backup, mountPath: /backup }
+              resources:
+                requests: { cpu: 50m, memory: 64Mi }
+                limits:   { cpu: 200m, memory: 128Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: { drop: ["ALL"] }
+                readOnlyRootFilesystem: true
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: backup-pvc

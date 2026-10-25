@@ -1,0 +1,32 @@
+# Quota dimensionné selon les besoins de TaskFlow (voir le calcul dans le compte rendu)
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: taskapp-quota
+  namespace: taskapp
+spec:
+  hard:
+    requests.cpu: "1"
+    requests.memory: 1Gi
+    limits.cpu: "3"
+    limits.memory: 3Gi
+    pods: "12"
+    persistentvolumeclaims: "3"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: taskapp-limits
+  namespace: taskapp
+spec:
+  limits:
+    - type: Container
+      defaultRequest:      # valeurs données à un conteneur qui ne définit pas de requests
+        cpu: 50m
+        memory: 64Mi
+      default:             # valeurs données à un conteneur qui ne définit pas de limits
+        cpu: 200m
+        memory: 256Mi
+      max:                 # aucun conteneur ne peut dépasser ces valeurs
+        cpu: "1"
+        memory: 1Gi

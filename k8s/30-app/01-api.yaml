@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: taskapp
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: taskflow, tier: api }
+  template:
+    metadata:
+      labels: { app: taskflow, tier: api }
+    spec:
+      serviceAccountName: api-sa
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      initContainers:
+        - name: wait-for-db          # E7 : l'API attend que la base soit prête
+          image: postgres:16-alpine
+          command: ["sh", "-c", "until pg_isready -h db -p 5432; do echo 'en attente de la base...'; sleep 2; done; echo 'base prete'"]
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits:   { cpu: 100m, memory: 64Mi }
+          securityContext:
+            runAsUser: 70
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+            readOnlyRootFilesystem: true
+      containers:
+        - name: api
+          image: hablani/taskflow-api:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef: { name: app-config }
+          env:
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef: { name: db-credentials, key: POSTGRES_USER }
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: db-credentials, key: POSTGRES_PASSWORD }
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: db-credentials, key: JWT_SECRET }
+          readinessProbe:            # E9
+            httpGet: { path: /ready, port: 3000 }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:             # E9
+            httpGet: { path: /health, port: 3000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:                 # E8
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 300m, memory: 256Mi }
+          securityContext:           # E13
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-svc
+  namespace: taskapp
+spec:
+  selector: { app: taskflow, tier: api }
+  ports:
+    - port: 3000
+      targetPort: 3000

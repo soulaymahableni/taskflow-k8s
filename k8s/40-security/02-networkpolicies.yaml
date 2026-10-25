@@ -1,0 +1,54 @@
+# 1) Tout interdire en entrée dans le namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: default-deny-ingress, namespace: taskapp }
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+---
+# 2) Traefik (namespace kube-system) -> frontend:8080
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: allow-traefik-to-frontend, namespace: taskapp }
+spec:
+  podSelector:
+    matchLabels: { tier: frontend }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports:
+        - { protocol: TCP, port: 8080 }
+---
+# 3) frontend -> api:3000
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: allow-frontend-to-api, namespace: taskapp }
+spec:
+  podSelector:
+    matchLabels: { tier: api }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { tier: frontend }
+      ports:
+        - { protocol: TCP, port: 3000 }
+---
+# 4) api + job de sauvegarde -> db:5432 (le frontend n'y a PAS accès)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: allow-api-to-db, namespace: taskapp }
+spec:
+  podSelector:
+    matchLabels: { tier: db }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { tier: api }
+        - podSelector:
+            matchLabels: { tier: backup }
+      ports:
+        - { protocol: TCP, port: 5432 }

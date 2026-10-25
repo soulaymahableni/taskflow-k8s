@@ -1,0 +1,5 @@
+# Secrets réels : ne JAMAIS les versionner
+k8s/10-config/secret.yaml
+.env
+node_modules/
+*.tar

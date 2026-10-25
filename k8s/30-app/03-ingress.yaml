@@ -1,0 +1,18 @@
+# Seul le frontend est exposé ; l'API et la base restent internes au cluster.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: taskflow
+  namespace: taskapp
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: app.k3s.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-svc
+                port: { number: 80 }
